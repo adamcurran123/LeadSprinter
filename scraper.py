@@ -31,7 +31,16 @@ class LinkedInScraper:
         chrome_options.add_argument('--disable-gpu')
         chrome_options.add_argument('--disable-extensions')
         chrome_options.add_argument('--disable-images')  # Faster loading
-        chrome_options.add_argument('--disable-javascript')  # For basic scraping
+        
+        # Fix for dev container/codespace issues
+        chrome_options.add_argument('--disable-web-security')
+        chrome_options.add_argument('--allow-running-insecure-content')
+        chrome_options.add_argument('--disable-features=VizDisplayCompositor')
+        
+        # Use unique user data directory to avoid conflicts
+        import tempfile
+        user_data_dir = tempfile.mkdtemp()
+        chrome_options.add_argument(f'--user-data-dir={user_data_dir}')
         
         # User agent to appear more legitimate
         chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
@@ -43,11 +52,25 @@ class LinkedInScraper:
         # chrome_options.add_argument('--headless')
         
         try:
-            self.driver = webdriver.Chrome(options=chrome_options)
+            # Try using webdriver-manager for automatic driver management
+            from webdriver_manager.chrome import ChromeDriverManager
+            from selenium.webdriver.chrome.service import Service
+            
+            service = Service(ChromeDriverManager().install())
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
             self.wait = WebDriverWait(self.driver, 10)
             return True
-        except Exception as e:
-            raise Exception(f"Failed to setup Chrome driver: {str(e)}")
+            
+        except Exception as e1:
+            try:
+                # Fallback: try with system ChromeDriver
+                self.driver = webdriver.Chrome(options=chrome_options)
+                self.wait = WebDriverWait(self.driver, 10)
+                return True
+            except Exception as e2:
+                raise Exception(f"Failed to setup Chrome driver: {str(e1)}. Fallback also failed: {str(e2)}")
+        
+        return False
     
     def random_delay(self, min_seconds=1, max_seconds=3):
         """Add random delay to avoid detection"""

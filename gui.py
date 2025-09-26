@@ -8,8 +8,19 @@ from data_handler import DataHandler
 
 class LeadSprinterGUI:
     def __init__(self):
-        # Set professional theme
-        sg.theme('DarkBlue3')
+        # Set professional theme - handle different PySimpleGUI versions
+        try:
+            sg.theme('DarkBlue3')
+        except AttributeError:
+            try:
+                sg.theme_global('DarkBlue3')
+            except AttributeError:
+                try:
+                    sg.change_look_and_feel('DarkBlue3')
+                except AttributeError:
+                    # Fallback for older versions or if theme doesn't exist
+                    pass
+        
         self.scraper = None
         self.data_handler = DataHandler()
         self.scraping_active = False
@@ -234,5 +245,15 @@ class LeadSprinterGUI:
 
 def run_gui():
     """Entry point for GUI"""
-    app = LeadSprinterGUI()
-    app.run()
+    try:
+        # Check if we can actually run GUI in this environment
+        import os
+        if not os.environ.get('DISPLAY') and not os.environ.get('WAYLAND_DISPLAY'):
+            raise Exception("No display available - GUI cannot run in headless environment")
+        
+        app = LeadSprinterGUI()
+        app.run()
+    except Exception as e:
+        print(f"GUI cannot run: {str(e)}")
+        print("This is normal in headless environments like Codespaces")
+        raise

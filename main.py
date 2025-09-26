@@ -62,35 +62,38 @@ def check_webdriver():
     try:
         from selenium import webdriver
         from selenium.webdriver.chrome.options import Options
+        from webdriver_manager.chrome import ChromeDriverManager
+        from selenium.webdriver.chrome.service import Service
+        import tempfile
         
         chrome_options = Options()
         chrome_options.add_argument('--headless')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-gpu')
         
-        # Try to create a driver instance
-        driver = webdriver.Chrome(options=chrome_options)
-        driver.quit()
+        # Use unique user data directory
+        user_data_dir = tempfile.mkdtemp()
+        chrome_options.add_argument(f'--user-data-dir={user_data_dir}')
         
-        return True
+        # Try webdriver-manager first
+        try:
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+            driver.quit()
+            return True
+        except Exception as e1:
+            # Fallback to system driver
+            try:
+                driver = webdriver.Chrome(options=chrome_options)
+                driver.quit()
+                return True
+            except Exception as e2:
+                print(f"WebDriver check failed: {str(e1)}")
+                return False
         
     except Exception as e:
-        error_msg = f"""
-        Chrome WebDriver not found or not working properly.
-        
-        Error: {str(e)}
-        
-        Please ensure:
-        1. Google Chrome browser is installed
-        2. ChromeDriver is installed and in your PATH
-        
-        You can install ChromeDriver using:
-        - Download from: https://chromedriver.chromium.org/
-        - Or use: pip install webdriver-manager
-        
-        For automatic driver management, we'll try to handle this in the application.
-        """
-        print(error_msg)
+        print(f"WebDriver check failed: {str(e)}")
         return False
 
 def create_directories():
@@ -101,6 +104,20 @@ def create_directories():
         if not os.path.exists(directory):
             os.makedirs(directory)
 
+def is_headless_environment():
+    """Check if we're in a headless environment (like Codespaces)"""
+    # Check for common headless environment indicators
+    headless_indicators = [
+        os.environ.get('CODESPACES') is not None,
+        os.environ.get('DISPLAY') is None and os.environ.get('WAYLAND_DISPLAY') is None,
+        os.environ.get('SSH_CLIENT') is not None,
+        os.environ.get('SSH_TTY') is not None,
+        not os.environ.get('DESKTOP_SESSION'),
+        os.environ.get('TERM_PROGRAM') == 'vscode',  # VS Code integrated terminal
+    ]
+    
+    return any(headless_indicators)
+
 def main():
     """Main entry point"""
     logger = setup_logging()
@@ -109,6 +126,13 @@ def main():
         logger.info("Starting LeadSprinter Pro application")
         print("=== LeadSprinter Pro ===")
         print("Professional LinkedIn Lead Generation Tool")
+        
+        # Check if we're in a headless environment
+        is_headless = is_headless_environment()
+        if is_headless:
+            print("Detected headless environment - using command line interface")
+            print("(Perfect for Codespaces, SSH, or server environments)")
+        
         print("Initializing application...")
         
         # Create necessary directories
@@ -125,26 +149,39 @@ def main():
         webdriver_ok = check_webdriver()
         if not webdriver_ok:
             logger.warning("WebDriver check failed, but continuing...")
-            print("Warning: WebDriver issues detected. The application may not work properly.")
-            response = input("Continue anyway? (y/N): ").lower().strip()
-            if response != 'y':
-                sys.exit(1)
+            print("Warning: WebDriver issues detected. This may be normal in headless environments.")
+            if not is_headless:
+                response = input("Continue anyway? (y/N): ").lower().strip()
+                if response != 'y':
+                    sys.exit(1)
         
-        # Import and run GUI
-        print("Loading application interface...")
-        try:
-            from gui import run_gui
-            logger.info("GUI module imported successfully")
-            
-            print("Starting LeadSprinter Pro...")
-            run_gui()
-            
-        except ImportError as e:
-            logger.error(f"Failed to import GUI module: {str(e)}")
-            print(f"Error: Failed to load application interface: {str(e)}")
-            print("Please ensure all files are present and try again.")
-            input("Press Enter to exit...")
-            sys.exit(1)
+        # Choose interface based on environment
+        if is_headless or '--cli' in sys.argv:
+            print("Loading command line interface...")
+            try:
+                from cli import run_cli
+                logger.info("CLI module imported successfully")
+                run_cli()
+            except ImportError as e:
+                logger.error(f"Failed to import CLI module: {str(e)}")
+                print(f"Error: Failed to load command line interface: {str(e)}")
+                sys.exit(1)
+        else:
+            print("Loading graphical interface...")
+            try:
+                from gui import run_gui
+                logger.info("GUI module imported successfully")
+                run_gui()
+            except ImportError as e:
+                logger.error(f"Failed to import GUI module: {str(e)}")
+                print(f"Error: Failed to load graphical interface: {str(e)}")
+                print("Falling back to command line interface...")
+                try:
+                    from cli import run_cli
+                    run_cli()
+                except ImportError:
+                    print("Both GUI and CLI failed to load.")
+                    sys.exit(1)
             
     except KeyboardInterrupt:
         logger.info("Application interrupted by user")
@@ -158,7 +195,8 @@ def main():
         print("Please check the log file for more details.")
         print(f"Log location: logs/leadsprinter_{datetime.now().strftime('%Y%m%d')}.log")
         
-        input("Press Enter to exit...")
+        if not is_headless_environment():
+            input("Press Enter to exit...")
         sys.exit(1)
     
     finally:
