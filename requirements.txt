@@ -1,7 +1,8 @@
-PySimpleGUI
-selenium
-pandas
-openpyxl
-requests
-tqdm
-pyinstaller
+PySimpleGUI>=4.60.0
+selenium>=4.0.0
+pandas>=1.3.0
+openpyxl>=3.0.0
+requests>=2.25.0
+tqdm>=4.62.0
+pyinstaller>=5.0.0
+webdriver-manager>=3.8.0
