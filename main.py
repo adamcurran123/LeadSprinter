@@ -106,16 +106,14 @@ def create_directories():
 
 def is_headless_environment():
     """Check if we're in a headless environment (like Codespaces)"""
-    # Check for common headless environment indicators
+    # Only consider truly headless environments - be more restrictive
     headless_indicators = [
-        os.environ.get('CODESPACES') is not None,
-        os.environ.get('DISPLAY') is None and os.environ.get('WAYLAND_DISPLAY') is None,
-        os.environ.get('SSH_CLIENT') is not None,
-        os.environ.get('SSH_TTY') is not None,
-        not os.environ.get('DESKTOP_SESSION'),
-        os.environ.get('TERM_PROGRAM') == 'vscode',  # VS Code integrated terminal
+        os.environ.get('CODESPACES') == 'true',  # GitHub Codespaces specifically
+        os.environ.get('CI') == 'true',  # CI environments
+        os.environ.get('GITHUB_ACTIONS') == 'true',  # GitHub Actions
     ]
     
+    # Always try GUI first on normal systems, even without perfect DISPLAY detection
     return any(headless_indicators)
 
 def main():
@@ -155,32 +153,32 @@ def main():
                 if response != 'y':
                     sys.exit(1)
         
-        # Choose interface based on environment
-        if is_headless or '--cli' in sys.argv:
-            print("Loading command line interface...")
+        # Choose interface - ALWAYS try GUI first unless explicitly CLI
+        if '--cli' in sys.argv or '--command-line' in sys.argv:
+            print("Command line mode requested...")
             try:
                 from cli import run_cli
-                logger.info("CLI module imported successfully")
                 run_cli()
-            except ImportError as e:
-                logger.error(f"Failed to import CLI module: {str(e)}")
-                print(f"Error: Failed to load command line interface: {str(e)}")
+            except Exception as e:
+                logger.error(f"CLI failed: {e}")
+                print(f"CLI interface failed: {e}")
                 sys.exit(1)
         else:
-            print("Loading graphical interface...")
+            # Always try GUI first, fall back to CLI if GUI fails
+            print("Starting GUI interface...")
             try:
                 from gui import run_gui
                 logger.info("GUI module imported successfully")
                 run_gui()
-            except ImportError as e:
-                logger.error(f"Failed to import GUI module: {str(e)}")
-                print(f"Error: Failed to load graphical interface: {str(e)}")
-                print("Falling back to command line interface...")
+            except Exception as gui_error:
+                logger.warning(f"GUI failed: {gui_error}")
+                print(f"GUI failed ({gui_error}), falling back to CLI...")
                 try:
                     from cli import run_cli
                     run_cli()
-                except ImportError:
-                    print("Both GUI and CLI failed to load.")
+                except Exception as cli_error:
+                    logger.error(f"Both GUI and CLI failed. GUI: {gui_error}, CLI: {cli_error}")
+                    print(f"Both interfaces failed. Please check the logs.")
                     sys.exit(1)
             
     except KeyboardInterrupt:
