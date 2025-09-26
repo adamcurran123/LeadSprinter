@@ -5,6 +5,7 @@ import time
 import random
 import pandas as pd
 from selenium import webdriver
+from alternative_scraper import AlternativeLinkedInScraper
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -240,80 +241,23 @@ class LinkedInScraper:
             return False
 
     def scrape_duckduckgo_search_results(self, search_query, max_results=20):
-        """Alternative search using DuckDuckGo (less likely to block)"""
+        """Alternative search using DuckDuckGo with requests (bypasses Selenium blocking)"""
         try:
-            profile_links = []
+            print(f"🦆 Using DuckDuckGo alternative scraper for: {search_query}")
             
-            # DuckDuckGo search strategies
-            search_strategies = [
-                f'site:linkedin.com/in "{search_query}"',
-                f'site:linkedin.com/in {search_query}',
-                f'linkedin.com "{search_query}" profile',
-                f'{search_query} linkedin profile'
-            ]
+            # Use the alternative scraper for DuckDuckGo
+            alt_scraper = AlternativeLinkedInScraper()
+            profiles = alt_scraper.search_duckduckgo_for_linkedin(search_query, max_results)
             
-            for i, search_terms in enumerate(search_strategies):
-                if len(profile_links) >= max_results:
-                    break
-                    
-                print(f"🦆 DuckDuckGo Strategy {i+1}: {search_terms}")
+            if profiles:
+                print(f"✅ DuckDuckGo alternative found {len(profiles)} profiles")
+            else:
+                print("❌ DuckDuckGo alternative found no profiles")
                 
-                try:
-                    # Build DuckDuckGo search URL
-                    base_url = "https://duckduckgo.com/html/"
-                    import urllib.parse
-                    params = {
-                        'q': search_terms,
-                        'kl': 'ie-en'  # Ireland English
-                    }
-                    
-                    query_string = urllib.parse.urlencode(params)
-                    url = f"{base_url}?{query_string}"
-                    
-                    self.driver.get(url)
-                    self.random_delay(2, 4)
-                    
-                    # Extract LinkedIn URLs
-                    batch_urls = []
-                    try:
-                        # DuckDuckGo specific selectors
-                        selectors = [
-                            'a[href*="linkedin.com/in/"]',
-                            '.result__url[href*="linkedin.com/in/"]',
-                            '.result__a[href*="linkedin.com/in/"]'
-                        ]
-                        
-                        for selector in selectors:
-                            links = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                            for link in links:
-                                href = link.get_attribute('href')
-                                if href and 'linkedin.com/in/' in href:
-                                    clean_url = self.clean_search_url(href)
-                                    if clean_url and clean_url not in batch_urls:
-                                        batch_urls.append(clean_url)
-                    except:
-                        pass
-                    
-                    # Add to main list
-                    for url in batch_urls:
-                        if url not in profile_links and len(profile_links) < max_results:
-                            profile_links.append(url)
-                    
-                    print(f"✅ DuckDuckGo found {len(batch_urls)} profiles")
-                    
-                    if batch_urls:
-                        self.random_delay(2, 3)
-                    else:
-                        self.random_delay(3, 5)
-                        
-                except Exception as e:
-                    print(f"❌ DuckDuckGo strategy {i+1} failed: {str(e)}")
-                    continue
-                    
-            return profile_links
+            return profiles
             
         except Exception as e:
-            print(f"❌ DuckDuckGo search failed: {str(e)}")
+            print(f"❌ DuckDuckGo alternative search failed: {str(e)}")
             return []
 
     def clean_search_url(self, url):
@@ -452,7 +396,22 @@ class LinkedInScraper:
                 print("  - No matching profiles exist")
                 print("  - Google is blocking automated searches")  
                 print("  - Search terms too specific")
-            
+                
+                # Try alternative scraper as fallback
+                print("\n🔄 Trying alternative scraping methods...")
+                try:
+                    alt_scraper = AlternativeLinkedInScraper()
+                    alt_profiles = alt_scraper.scrape_linkedin_profiles(search_query, max_results)
+                    
+                    if alt_profiles:
+                        print(f"✅ Alternative scraper found {len(alt_profiles)} profiles!")
+                        profile_links.extend(alt_profiles)
+                    else:
+                        print("❌ Alternative scraper also found no results")
+                        
+                except Exception as e:
+                    print(f"❌ Alternative scraper failed: {str(e)}")
+
             return profile_links[:max_results]
             
         except Exception as e:
