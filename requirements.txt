@@ -1,0 +1,7 @@
+PySimpleGUI
+selenium
+pandas
+openpyxl
+requests
+tqdm
+pyinstaller
