@@ -101,6 +101,8 @@ class LinkedInScraper:
         profile_links = []
         
         try:
+            print("🔍 Extracting LinkedIn URLs from search results...")
+            
             # Multiple selectors to find LinkedIn profile links
             selectors = [
                 'div.g h3 a[href*="linkedin.com/in/"]',  # Standard search results
@@ -110,9 +112,11 @@ class LinkedInScraper:
                 '[data-ved] a[href*="linkedin.com/in/"]'  # Any element with data-ved
             ]
             
-            for selector in selectors:
+            for i, selector in enumerate(selectors):
                 try:
                     links = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    print(f"  Selector {i+1} '{selector}': found {len(links)} links")
+                    
                     for link in links:
                         href = link.get_attribute('href')
                         if href and 'linkedin.com/in/' in href:
@@ -120,27 +124,55 @@ class LinkedInScraper:
                             clean_url = self.clean_google_url(href)
                             if clean_url and clean_url not in profile_links:
                                 profile_links.append(clean_url)
+                                print(f"    ✅ Added: {clean_url}")
                 except Exception as e:
+                    print(f"  ❌ Selector {i+1} failed: {str(e)}")
                     continue
             
             # Try finding URLs in page source as backup
             if not profile_links:
+                print("🔍 No URLs found with selectors, trying regex on page source...")
                 try:
                     page_source = self.driver.page_source
                     import re
                     # Look for LinkedIn URLs in the raw HTML
                     linkedin_pattern = r'https://[^"\'>\s]*linkedin\.com/in/[^"\'>\s/]+'
                     matches = re.findall(linkedin_pattern, page_source)
+                    print(f"  Regex found {len(matches)} potential URLs")
+                    
                     for match in matches:
                         clean_url = self.clean_google_url(match)
                         if clean_url and clean_url not in profile_links:
                             profile_links.append(clean_url)
+                            print(f"    ✅ Added from regex: {clean_url}")
+                except Exception as e:
+                    print(f"  ❌ Regex extraction failed: {str(e)}")
+            
+            # Debug: show part of page source if no results
+            if not profile_links:
+                print("⚠️ No LinkedIn URLs found. Checking page content...")
+                try:
+                    page_text = self.driver.page_source.lower()[:2000]
+                    if 'linkedin' in page_text:
+                        print("  ✅ Page contains 'linkedin' text")
+                    else:
+                        print("  ❌ Page does not contain 'linkedin' text")
+                    
+                    if 'search' in page_text:
+                        print("  ✅ Page appears to be a search page")
+                    else:
+                        print("  ❌ Page may not be a search results page")
+                        
+                    if any(word in page_text for word in ['captcha', 'unusual', 'blocked', 'verify']):
+                        print("  ⚠️ Page may contain anti-bot measures")
+                        
                 except:
                     pass
                     
         except Exception as e:
-            print(f"Error extracting URLs: {str(e)}")
+            print(f"❌ Error extracting URLs: {str(e)}")
         
+        print(f"🎯 Total LinkedIn URLs extracted: {len(profile_links)}")
         return list(set(profile_links))  # Remove duplicates
     
     def clean_google_url(self, url):
@@ -207,6 +239,114 @@ class LinkedInScraper:
             print(f"Error detecting blocking: {str(e)}")
             return False
 
+    def scrape_duckduckgo_search_results(self, search_query, max_results=20):
+        """Alternative search using DuckDuckGo (less likely to block)"""
+        try:
+            profile_links = []
+            
+            # DuckDuckGo search strategies
+            search_strategies = [
+                f'site:linkedin.com/in "{search_query}"',
+                f'site:linkedin.com/in {search_query}',
+                f'linkedin.com "{search_query}" profile',
+                f'{search_query} linkedin profile'
+            ]
+            
+            for i, search_terms in enumerate(search_strategies):
+                if len(profile_links) >= max_results:
+                    break
+                    
+                print(f"🦆 DuckDuckGo Strategy {i+1}: {search_terms}")
+                
+                try:
+                    # Build DuckDuckGo search URL
+                    base_url = "https://duckduckgo.com/html/"
+                    import urllib.parse
+                    params = {
+                        'q': search_terms,
+                        'kl': 'ie-en'  # Ireland English
+                    }
+                    
+                    query_string = urllib.parse.urlencode(params)
+                    url = f"{base_url}?{query_string}"
+                    
+                    self.driver.get(url)
+                    self.random_delay(2, 4)
+                    
+                    # Extract LinkedIn URLs
+                    batch_urls = []
+                    try:
+                        # DuckDuckGo specific selectors
+                        selectors = [
+                            'a[href*="linkedin.com/in/"]',
+                            '.result__url[href*="linkedin.com/in/"]',
+                            '.result__a[href*="linkedin.com/in/"]'
+                        ]
+                        
+                        for selector in selectors:
+                            links = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                            for link in links:
+                                href = link.get_attribute('href')
+                                if href and 'linkedin.com/in/' in href:
+                                    clean_url = self.clean_search_url(href)
+                                    if clean_url and clean_url not in batch_urls:
+                                        batch_urls.append(clean_url)
+                    except:
+                        pass
+                    
+                    # Add to main list
+                    for url in batch_urls:
+                        if url not in profile_links and len(profile_links) < max_results:
+                            profile_links.append(url)
+                    
+                    print(f"✅ DuckDuckGo found {len(batch_urls)} profiles")
+                    
+                    if batch_urls:
+                        self.random_delay(2, 3)
+                    else:
+                        self.random_delay(3, 5)
+                        
+                except Exception as e:
+                    print(f"❌ DuckDuckGo strategy {i+1} failed: {str(e)}")
+                    continue
+                    
+            return profile_links
+            
+        except Exception as e:
+            print(f"❌ DuckDuckGo search failed: {str(e)}")
+            return []
+
+    def clean_search_url(self, url):
+        """Clean URLs from search engines"""
+        try:
+            if not url or 'linkedin.com/in/' not in url:
+                return None
+                
+            # Handle various redirect patterns
+            if 'duckduckgo.com' in url and 'uddg=' in url:
+                # DuckDuckGo redirect
+                import urllib.parse
+                parsed = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+                if 'uddg' in parsed:
+                    return parsed['uddg'][0]
+            
+            if 'google.com/url?q=' in url:
+                # Google redirect
+                import urllib.parse
+                parsed = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+                if 'q' in parsed:
+                    actual_url = parsed['q'][0]
+                    if 'linkedin.com/in/' in actual_url:
+                        return actual_url.split('&')[0]
+            
+            # Direct LinkedIn URL
+            if url.startswith('https://linkedin.com') or url.startswith('https://www.linkedin.com'):
+                return url.split('?')[0]
+                
+            return None
+        except:
+            return None
+
     def scrape_google_search_results(self, search_query, max_results):
         """Enhanced Google search for LinkedIn profiles with multiple strategies"""
         try:
@@ -249,6 +389,9 @@ class LinkedInScraper:
                     
                     self.driver.get(url)
                     self.random_delay(2, 4)
+                    
+                    print(f"📍 Current URL: {self.driver.current_url}")
+                    print(f"📄 Page title: {self.driver.title}")
                     
                     # Handle consent/cookie pages
                     if 'consent.google' in self.driver.current_url:
@@ -465,8 +608,16 @@ class LinkedInScraper:
                                 min(20, remaining_needed)
                             )
                             
+                            # If Google returns no results, try DuckDuckGo as fallback
                             if not profile_urls:
-                                print(f"⚠️  No profiles found for '{search_query}' - trying next variant")
+                                print(f"🔄 Google found nothing for '{search_query}', trying DuckDuckGo...")
+                                profile_urls = self.scrape_duckduckgo_search_results(
+                                    search_query,
+                                    min(15, remaining_needed)
+                                )
+                            
+                            if not profile_urls:
+                                print(f"❌ No profiles found for '{search_query}' with any search engine")
                                 continue
                             
                             print(f"🔍 Processing {len(profile_urls)} profiles from '{search_query}'")
