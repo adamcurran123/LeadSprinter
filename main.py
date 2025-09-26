@@ -104,32 +104,22 @@ def create_directories():
         if not os.path.exists(directory):
             os.makedirs(directory)
 
-def is_headless_environment():
-    """Check if we're in a headless environment (like Codespaces)"""
-    # Only consider truly headless environments - be more restrictive
-    headless_indicators = [
-        os.environ.get('CODESPACES') == 'true',  # GitHub Codespaces specifically
-        os.environ.get('CI') == 'true',  # CI environments
-        os.environ.get('GITHUB_ACTIONS') == 'true',  # GitHub Actions
-    ]
+def create_directories():
+    """Create necessary directories"""
+    directories = ['logs', 'exports', 'temp']
     
-    # Always try GUI first on normal systems, even without perfect DISPLAY detection
-    return any(headless_indicators)
+    for directory in directories:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
 
 def main():
-    """Main entry point"""
+    """Main entry point - GUI only"""
     logger = setup_logging()
     
     try:
         logger.info("Starting LeadSprinter Pro application")
         print("=== LeadSprinter Pro ===")
         print("Professional LinkedIn Lead Generation Tool")
-        
-        # Check if we're in a headless environment
-        is_headless = is_headless_environment()
-        if is_headless:
-            print("Detected headless environment - using command line interface")
-            print("(Perfect for Codespaces, SSH, or server environments)")
         
         print("Initializing application...")
         
@@ -147,39 +137,26 @@ def main():
         webdriver_ok = check_webdriver()
         if not webdriver_ok:
             logger.warning("WebDriver check failed, but continuing...")
-            print("Warning: WebDriver issues detected. This may be normal in headless environments.")
-            if not is_headless:
-                response = input("Continue anyway? (y/N): ").lower().strip()
-                if response != 'y':
-                    sys.exit(1)
-        
-        # Choose interface - ALWAYS try GUI first unless explicitly CLI
-        if '--cli' in sys.argv or '--command-line' in sys.argv:
-            print("Command line mode requested...")
-            try:
-                from cli import run_cli
-                run_cli()
-            except Exception as e:
-                logger.error(f"CLI failed: {e}")
-                print(f"CLI interface failed: {e}")
+            print("Warning: WebDriver issues detected. You may need to install Chrome.")
+            response = input("Continue anyway? (y/N): ").lower().strip()
+            if response != 'y':
                 sys.exit(1)
-        else:
-            # Always try GUI first, fall back to CLI if GUI fails
-            print("Starting GUI interface...")
-            try:
-                from gui import run_gui
-                logger.info("GUI module imported successfully")
-                run_gui()
-            except Exception as gui_error:
-                logger.warning(f"GUI failed: {gui_error}")
-                print(f"GUI failed ({gui_error}), falling back to CLI...")
-                try:
-                    from cli import run_cli
-                    run_cli()
-                except Exception as cli_error:
-                    logger.error(f"Both GUI and CLI failed. GUI: {gui_error}, CLI: {cli_error}")
-                    print(f"Both interfaces failed. Please check the logs.")
-                    sys.exit(1)
+        
+        # Launch GUI interface only
+        print("Starting GUI interface...")
+        try:
+            from gui import run_gui
+            logger.info("GUI module imported successfully")
+            run_gui()
+        except Exception as gui_error:
+            logger.error(f"GUI failed: {gui_error}")
+            print(f"\nGUI interface failed: {gui_error}")
+            print("\nThis might be because:")
+            print("1. You're in a headless environment (no display)")
+            print("2. PySimpleGUI is not properly installed")
+            print("3. Missing GUI dependencies")
+            print("\nTry running: pip install --upgrade PySimpleGUI")
+            sys.exit(1)
             
     except KeyboardInterrupt:
         logger.info("Application interrupted by user")
@@ -193,8 +170,7 @@ def main():
         print("Please check the log file for more details.")
         print(f"Log location: logs/leadsprinter_{datetime.now().strftime('%Y%m%d')}.log")
         
-        if not is_headless_environment():
-            input("Press Enter to exit...")
+        input("Press Enter to exit...")
         sys.exit(1)
     
     finally:
