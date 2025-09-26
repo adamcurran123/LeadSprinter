@@ -246,14 +246,9 @@ class LeadSprinterGUI:
 def run_gui():
     """Entry point for GUI"""
     try:
-        # Check if we can actually run GUI in this environment
-        import os
-        if not os.environ.get('DISPLAY') and not os.environ.get('WAYLAND_DISPLAY'):
-            raise Exception("No display available - GUI cannot run in headless environment")
-        
         app = LeadSprinterGUI()
         app.run()
     except Exception as e:
         print(f"GUI cannot run: {str(e)}")
-        print("This is normal in headless environments like Codespaces")
+        print("This might be a PySimpleGUI or display issue")
         raise
