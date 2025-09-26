@@ -11,6 +11,19 @@ def test_pysimplegui():
         import PySimpleGUI as sg
         print("✅ PySimpleGUI imported successfully")
         
+        # Check PySimpleGUI version and attributes
+        try:
+            version = sg.version if hasattr(sg, 'version') else 'Unknown'
+            print(f"PySimpleGUI version: {version}")
+        except:
+            print("Could not determine PySimpleGUI version")
+        
+        # Check for Text attribute
+        if not hasattr(sg, 'Text'):
+            print("❌ PySimpleGUI is missing Text attribute - installation is incomplete")
+            print("This usually means PySimpleGUI needs to be properly installed from the new server")
+            return False
+        
         # Try to set a theme
         try:
             sg.theme('DarkBlue3')
@@ -43,7 +56,7 @@ def test_pysimplegui():
         
     except Exception as e:
         print(f"❌ PySimpleGUI test failed: {e}")
-        print("This might indicate a display or GUI issue")
+        print("This might indicate a display, GUI issue, or incomplete PySimpleGUI installation")
         
         # Try to get more specific error info
         import traceback
@@ -58,6 +71,15 @@ if __name__ == "__main__":
     if success:
         print("\n🎉 All tests passed! LeadSprinter GUI should work.")
     else:
-        print("\n❌ Tests failed. Check the errors above.")
+        print("\n❌ Tests failed. Please install PySimpleGUI properly:")
+        print("\n1. Uninstall current version:")
+        print("   python -m pip uninstall PySimpleGUI")
+        print("   python -m pip cache purge")
+        print("\n2. Install from the new server:")
+        print("   python -m pip install --upgrade --extra-index-url https://PySimpleGUI.net/install PySimpleGUI")
+        print("\n3. Or force reinstall:")
+        print("   python -m pip install --force-reinstall --extra-index-url https://PySimpleGUI.net/install PySimpleGUI")
+        print("\n4. Then run this test again:")
+        print("   python test_gui.py")
         
     sys.exit(0 if success else 1)
