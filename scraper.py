@@ -96,83 +96,225 @@ class LinkedInScraper:
         emails = re.findall(email_pattern, text)
         return emails[0] if emails else None
     
-    def scrape_google_search_results(self, search_query, max_results):
-        """Search Google for LinkedIn profiles - improved to avoid captchas"""
+    def extract_linkedin_urls(self):
+        """Extract LinkedIn profile URLs from current Google search results page"""
+        profile_links = []
+        
         try:
-            # Build the search URL with more specific parameters
-            base_url = "https://www.google.com/search"
-            search_terms = f'site:linkedin.com/in/ "{search_query}"'
+            # Multiple selectors to find LinkedIn profile links
+            selectors = [
+                'div.g h3 a[href*="linkedin.com/in/"]',  # Standard search results
+                'a[href*="linkedin.com/in/"]',  # Any LinkedIn profile links
+                'div[data-ved] a[href*="linkedin.com/in/"]',  # Results with data-ved
+                '.g a[href*="linkedin.com/in/"]',  # General result container links
+                '[data-ved] a[href*="linkedin.com/in/"]'  # Any element with data-ved
+            ]
             
-            params = {
-                'q': search_terms,
-                'num': min(max_results, 10),  # Limit results to avoid triggering captcha
-                'hl': 'en',
-                'gl': 'us',
-                'start': 0
-            }
-            
-            url = base_url + "?" + "&".join([f"{k}={v.replace(' ', '+')}" for k, v in params.items()])
-            
-            print(f"Searching: {search_terms}")
-            self.driver.get(url)
-            self.random_delay(3, 6)  # Longer delay for Google
-            
-            # Check if we hit a captcha or block page
-            page_source = self.driver.page_source.lower()
-            if any(keyword in page_source for keyword in ['captcha', 'unusual traffic', 'detected unusual', 'verify you are human']):
-                print("⚠️  Google detected automated traffic. Skipping this search to avoid blocking.")
-                return []
-            
-            # Check if we were redirected to a consent page
-            if 'consent.google' in self.driver.current_url:
-                print("⚠️  Google consent page detected. Attempting to proceed...")
+            for selector in selectors:
                 try:
-                    # Look for accept buttons
-                    accept_buttons = self.driver.find_elements(By.CSS_SELECTOR, 'button[aria-label*="Accept"], button:contains("Accept all"), button:contains("I agree")')
-                    if accept_buttons:
-                        accept_buttons[0].click()
-                        self.random_delay(2, 3)
-                except:
-                    print("Could not handle consent page automatically")
-                    return []
+                    links = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    for link in links:
+                        href = link.get_attribute('href')
+                        if href and 'linkedin.com/in/' in href:
+                            # Clean Google tracking URLs
+                            clean_url = self.clean_google_url(href)
+                            if clean_url and clean_url not in profile_links:
+                                profile_links.append(clean_url)
+                except Exception as e:
+                    continue
             
+            # Try finding URLs in page source as backup
+            if not profile_links:
+                try:
+                    page_source = self.driver.page_source
+                    import re
+                    # Look for LinkedIn URLs in the raw HTML
+                    linkedin_pattern = r'https://[^"\'>\s]*linkedin\.com/in/[^"\'>\s/]+'
+                    matches = re.findall(linkedin_pattern, page_source)
+                    for match in matches:
+                        clean_url = self.clean_google_url(match)
+                        if clean_url and clean_url not in profile_links:
+                            profile_links.append(clean_url)
+                except:
+                    pass
+                    
+        except Exception as e:
+            print(f"Error extracting URLs: {str(e)}")
+        
+        return list(set(profile_links))  # Remove duplicates
+    
+    def clean_google_url(self, url):
+        """Clean Google tracking from URLs"""
+        try:
+            if not url or 'linkedin.com/in/' not in url:
+                return None
+                
+            # Handle Google redirect URLs
+            if 'google.com/url?q=' in url:
+                # Extract the actual URL from Google's redirect
+                import urllib.parse
+                parsed = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+                if 'q' in parsed:
+                    actual_url = parsed['q'][0]
+                    if 'linkedin.com/in/' in actual_url:
+                        return actual_url.split('&')[0]  # Remove tracking parameters
+            
+            # Clean direct LinkedIn URLs
+            if url.startswith('https://linkedin.com') or url.startswith('https://www.linkedin.com'):
+                return url.split('?')[0]  # Remove query parameters
+                
+            return None
+        except:
+            return None
+
+    def detect_captcha_or_blocking(self):
+        """Enhanced detection of anti-bot measures"""
+        try:
+            page_source = self.driver.page_source.lower()
+            current_url = self.driver.current_url.lower()
+            
+            # Check for various blocking indicators
+            blocking_indicators = [
+                'captcha', 'unusual traffic', 'detected unusual', 
+                'verify you are human', 'suspicious requests',
+                'automated queries', 'robot', 'unusual requests',
+                'please confirm', 'verify that you', 'prove you\'re human'
+            ]
+            
+            url_indicators = [
+                'captcha', 'blocked', 'denied', 'robot'
+            ]
+            
+            # Check page content
+            if any(indicator in page_source for indicator in blocking_indicators):
+                return True
+                
+            # Check URL
+            if any(indicator in current_url for indicator in url_indicators):
+                return True
+                
+            # Check for absence of search results (might indicate blocking)
+            if 'did not match any documents' in page_source:
+                return False  # This is a legitimate "no results" message
+            
+            # Check if we're on an error page
+            if '403' in page_source or '429' in page_source:
+                return True
+                
+            return False
+            
+        except Exception as e:
+            print(f"Error detecting blocking: {str(e)}")
+            return False
+
+    def scrape_google_search_results(self, search_query, max_results):
+        """Enhanced Google search for LinkedIn profiles with multiple strategies"""
+        try:
             profile_links = []
             
-            try:
-                # Use multiple selectors to find results
-                result_selectors = [
-                    'div.g h3 a',  # Standard results
-                    'a[href*="linkedin.com/in/"]',  # Any LinkedIn profile links
-                    'div[data-ved] a[href*="linkedin.com/in/"]'  # LinkedIn links in results
-                ]
+            # Multiple search strategies for better results
+            search_strategies = [
+                f'site:linkedin.com/in/ "{search_query}" Ireland',  # Specific to Ireland for Galway
+                f'site:linkedin.com/in/ {search_query} Galway',
+                f'site:linkedin.com/in/ "{search_query}"',
+                f'linkedin.com/in {search_query}',
+                f'intitle:"{search_query}" site:linkedin.com',
+                f'"{search_query}" linkedin profile'
+            ]
+            
+            for i, search_terms in enumerate(search_strategies):
+                if len(profile_links) >= max_results:
+                    break
+                    
+                print(f"🔍 Strategy {i+1}: {search_terms}")
                 
-                for selector in result_selectors:
-                    try:
-                        links = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                        for link in links:
-                            href = link.get_attribute('href')
-                            if href and 'linkedin.com/in/' in href and href not in profile_links:
-                                # Clean the URL to remove Google tracking
-                                if 'google.com/url?q=' in href:
-                                    href = href.split('&')[0].replace('/url?q=', '').replace('%3A', ':').replace('%2F', '/')
-                                profile_links.append(href)
-                                if len(profile_links) >= max_results:
-                                    break
-                    except Exception as e:
+                try:
+                    # Build search URL with Irish locale
+                    base_url = "https://www.google.com/search"
+                    params = {
+                        'q': search_terms,
+                        'num': '20',
+                        'hl': 'en',
+                        'gl': 'ie',  # Ireland
+                        'start': '0'
+                    }
+                    
+                    # Manual URL building to avoid encoding issues
+                    query_parts = []
+                    for key, value in params.items():
+                        encoded_value = str(value).replace(' ', '+').replace('"', '%22')
+                        query_parts.append(f"{key}={encoded_value}")
+                    
+                    url = f"{base_url}?{'&'.join(query_parts)}"
+                    
+                    self.driver.get(url)
+                    self.random_delay(2, 4)
+                    
+                    # Handle consent/cookie pages
+                    if 'consent.google' in self.driver.current_url:
+                        print("📝 Handling consent page...")
+                        try:
+                            # Try different consent button selectors
+                            consent_buttons = [
+                                'button[aria-label*="Accept"]',
+                                'button[aria-label*="I agree"]', 
+                                'form[action*="consent"] button',
+                                '#L2AGLb',  # Common Google consent button ID
+                                'button:contains("I agree")'
+                            ]
+                            
+                            for selector in consent_buttons:
+                                try:
+                                    buttons = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                                    if buttons:
+                                        buttons[0].click()
+                                        self.random_delay(2, 3)
+                                        break
+                                except:
+                                    continue
+                        except:
+                            pass
+                    
+                    # Check for blocking
+                    if self.detect_captcha_or_blocking():
+                        print("⚠️ Anti-bot measures detected, trying next strategy...")
+                        self.random_delay(5, 8)
                         continue
                     
-                    if len(profile_links) >= max_results:
-                        break
-                
-            except Exception as e:
-                print(f"Error finding profile links: {str(e)}")
+                    # Extract URLs from current page
+                    batch_urls = self.extract_linkedin_urls()
+                    
+                    # Add unique URLs
+                    for url in batch_urls:
+                        if url not in profile_links and len(profile_links) < max_results:
+                            profile_links.append(url)
+                    
+                    print(f"✅ Found {len(batch_urls)} profiles (total: {len(profile_links)})")
+                    
+                    if batch_urls:
+                        self.random_delay(2, 4)  # Success - moderate delay
+                    else:
+                        self.random_delay(3, 6)  # No results - longer delay
+                        
+                except Exception as e:
+                    print(f"❌ Strategy {i+1} failed: {str(e)}")
+                    self.random_delay(2, 4)
+                    continue
             
-            print(f"Found {len(profile_links)} profile links")
+            if profile_links:
+                print(f"🎯 SUCCESS: Found {len(profile_links)} LinkedIn profiles!")
+            else:
+                print("⚠️ No LinkedIn profiles found with any search strategy")
+                print("This could be due to:")
+                print("  - No matching profiles exist")
+                print("  - Google is blocking automated searches")  
+                print("  - Search terms too specific")
+            
             return profile_links[:max_results]
             
         except Exception as e:
-            print(f"Error in Google search: {str(e)}")
-            return []  # Return empty list instead of raising exception
+            print(f"❌ Google search failed: {str(e)}")
+            return []
     
     def scrape_profile_info(self, profile_url):
         """Extract information from a LinkedIn profile URL"""
@@ -299,55 +441,85 @@ class LinkedInScraper:
                 for location in search_params['locations']:
                     if self.stop_requested:
                         break
-                        
-                    search_query = f"{job_title} {location}"
                     
-                    if progress_callback:
-                        progress_callback(current_count, total_requested, 
-                                        f"Searching for: {search_query}")
+                    # Create more effective search queries
+                    search_variants = [
+                        f"{job_title} {location}",
+                        f"{job_title} in {location}", 
+                        f"{job_title} {location} Ireland" if 'galway' in location.lower() else f"{job_title} {location}"
+                    ]
                     
-                    # Get profile URLs from Google search
-                    try:
-                        profile_urls = self.scrape_google_search_results(
-                            search_query, 
-                            min(20, total_requested - current_count)
-                        )
-                        
-                        if not profile_urls:
-                            print(f"⚠️  No profiles found for '{search_query}' - trying next search")
-                            continue
-                        
-                        # Process each profile URL
-                        for url in profile_urls:
-                            if self.stop_requested or current_count >= total_requested:
-                                break
+                    for search_query in search_variants:
+                        if current_count >= total_requested or self.stop_requested:
+                            break
                             
-                            if progress_callback:
-                                progress_callback(current_count, total_requested, 
-                                                f"Processing profile {current_count + 1}/{total_requested}")
+                        if progress_callback:
+                            progress_callback(current_count, total_requested, 
+                                            f"Searching: {search_query}")
+                        
+                        # Get profile URLs from Google search
+                        try:
+                            remaining_needed = total_requested - current_count
+                            profile_urls = self.scrape_google_search_results(
+                                search_query, 
+                                min(20, remaining_needed)
+                            )
                             
-                            try:
-                                profile_data = self.scrape_profile_info(url)
-                                if profile_data:
-                                    all_results.append(profile_data)
-                                    current_count += 1
-                                    print(f"✓ Successfully scraped profile {current_count}: {profile_data.get('name', 'Unknown')}")
-                                else:
-                                    print(f"⚠️  Could not extract data from profile: {url}")
-                            except Exception as profile_error:
-                                print(f"⚠️  Error processing profile {url}: {str(profile_error)}")
+                            if not profile_urls:
+                                print(f"⚠️  No profiles found for '{search_query}' - trying next variant")
                                 continue
                             
-                            self.random_delay(3, 6)  # Longer delay between profiles
+                            print(f"🔍 Processing {len(profile_urls)} profiles from '{search_query}'")
                             
-                    except Exception as e:
-                        print(f"⚠️  Error processing search query '{search_query}': {str(e)}")
-                        print("Continuing with next search...")
-                        continue
+                            # Process each profile URL
+                            for i, profile_url in enumerate(profile_urls):
+                                if current_count >= total_requested or self.stop_requested:
+                                    break
+                                
+                                if progress_callback:
+                                    progress_callback(current_count, total_requested, 
+                                                    f"Extracting profile {i+1}/{len(profile_urls)}")
+                                
+                                # Skip if we already have this profile
+                                if any(result.get('linkedin_url') == profile_url for result in all_results):
+                                    continue
+                                
+                                try:
+                                    profile_data = self.scrape_profile_info(profile_url)
+                                    if profile_data:
+                                        # Add search context
+                                        profile_data['search_query'] = search_query
+                                        profile_data['job_title_searched'] = job_title
+                                        profile_data['location_searched'] = location
+                                        
+                                        all_results.append(profile_data)
+                                        current_count += 1
+                                        
+                                        print(f"✅ Profile {current_count}: {profile_data.get('name', 'Unknown')} - {profile_data.get('title', 'No title')}")
+                                    else:
+                                        print(f"⚠️  Could not extract data from {profile_url}")
+                                        
+                                except Exception as e:
+                                    print(f"❌ Error processing {profile_url}: {str(e)}")
+                                    continue
+                                
+                                # Small delay between profile scraping
+                                if not self.stop_requested:
+                                    self.random_delay(1, 3)
+                            
+                            # If we found profiles with this variant, don't try other variants for this job/location combo
+                            if profile_urls:
+                                break
+                                
+                        except Exception as e:
+                            print(f"❌ Search failed for '{search_query}': {str(e)}")
+                            continue
                     
+                    # Break out of location loop if we have enough results
                     if current_count >= total_requested:
                         break
                 
+                # Break out of job title loop if we have enough results  
                 if current_count >= total_requested:
                     break
             
